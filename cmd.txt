@@ -1,0 +1,3 @@
+python predict.py flowers/valid/1/image_06739.jpg checkpoint.pth --gpu
+
+python train.py flowers/train --gpu
