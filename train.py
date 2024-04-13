@@ -44,19 +44,34 @@ def load_and_transform_data(data_dir):
 
 def build_model(model_arch, hidden_units):
     model = getattr(models, model_arch)(pretrained=True)
+    
+    if 'vgg' in model_arch:
+        in_features = 25088
+    elif 'resnet' in model_arch:
+        in_features = model.fc.in_features
+    elif 'alexnet' in model_arch:
+        in_features = model.classifier[1].in_features
+    else:
+        raise ValueError("Model architecture not supported")
 
     for param in model.parameters():
         param.requires_grad = False
 
     classifier = nn.Sequential(
-        nn.Linear(in_features=25088, out_features=hidden_units),
+        nn.Linear(in_features, hidden_units),
         nn.ReLU(inplace=True),
         nn.Dropout(p=0.5),
-        nn.Linear(in_features=hidden_units, out_features=102),
+        nn.Linear(hidden_units, 102),
         nn.LogSoftmax(dim=1)
     )
 
-    model.classifier = classifier
+    if 'vgg' in model_arch or 'alexnet' in model_arch:
+        model.classifier = classifier
+    elif 'resnet' in model_arch:
+        model.fc = classifier
+    else:
+        raise ValueError("Model architecture not supported")
+
     return model
 
 def train(model, train_data_loader, valid_data_loader, optimizer, criterion, device, epochs):
@@ -98,11 +113,17 @@ def train(model, train_data_loader, valid_data_loader, optimizer, criterion, dev
 def save_checkpoint(model, optimizer, class_to_idx, model_arch, save_dir='.', filename='checkpoint.pth'):
     checkpoint = {
         'model_arch': model_arch,
-        'classifier': model.classifier,
         'state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'class_to_idx': class_to_idx
     }
+    if 'vgg' in model_arch or 'alexnet' in model_arch:
+        checkpoint['classifier'] = model.classifier
+    elif 'resnet' in model_arch:
+        checkpoint['fc'] = model.fc
+    else:
+        raise ValueError("Model architecture not supported")
+
     filepath = os.path.join(save_dir, filename)
     torch.save(checkpoint, filepath)
     print(f"Checkpoint saved to {filepath}")
@@ -124,7 +145,7 @@ if __name__ == '__main__':
 
     train_loader, valid_loader, class_to_idx = load_and_transform_data(args.data_dir)
     model = build_model(args.arch, args.hidden_units)
-    optimizer = optim.Adam(model.classifier.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(model.classifier.parameters(), lr=args.learning_rate) if 'vgg' in args.arch or 'alexnet' in args.arch else optim.Adam(model.fc.parameters(), lr=args.learning_rate)
     criterion = nn.NLLLoss()
 
     train(model, train_loader, valid_loader, optimizer, criterion, device, args.epochs)
